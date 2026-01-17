@@ -1,10 +1,10 @@
 """
-streamlit_app.py - FINAL VERSION WITH S-CURVE
+streamlit_app.py - FULL OPTIMIZED VERSION
 ✅ Proper predictor initialization with Streamlit cache
 ✅ Fixed CO2 breakdown chart
-✅ ADDED: Strength Development Curve (S-Curve) visualization
-✅ ADDED: Early & Long-term strength tables
-✅ ADDED: S-Parameter comparison
+✅ S-Curve visualization
+✅ Optimization modes selector
+✅ Cache statistics display
 """
 
 import os
@@ -255,29 +255,22 @@ def create_co2_breakdown_chart(co2_data: Dict) -> go.Figure:
     return fig
 
 
-# ===== NEW: S-CURVE VISUALIZATION =====
+# ===== S-CURVE VISUALIZATION =====
 
 def create_strength_development_chart(design: Dict, predictor, cement_type: str = "PC40") -> go.Figure:
-    """
-    Tạo biểu đồ đường cong phát triển cường độ (s-curve) - ROBUST VERSION
-    Tự động tính s nếu thiếu dữ liệu.
-    """
+    """Tạo biểu đồ đường cong phát triển cường độ (s-curve)"""
     mix = design['mix_design']
     f28 = design['predictions']['f28']
     
-    # --- LOGIC THÔNG MINH: Lấy s từ design HOẶC dự đoán lại ---
     if 's' in design['predictions'] and design['predictions']['s'] is not None:
         s = design['predictions']['s']
     else:
-        # Fallback: Gọi predictor nếu dữ liệu thiếu
         df_input = pd.DataFrame([mix])
         preds = predictor.predict(df_input, cement_type=cement_type)
         s = preds.iloc[0]['s']
 
-    # Clip s để tránh biểu đồ bị dị biệt
-    s = np.clip(s, 0.15, 0.6) 
+    s = np.clip(s, 0.15, 0.6)
     
-    # Tính toán đường cong
     ages = np.array([1, 3, 7, 14, 28, 56, 90, 180, 365])
     strengths = []
     
@@ -285,14 +278,12 @@ def create_strength_development_chart(design: Dict, predictor, cement_type: str 
         if age == 28:
             strength = f28
         else:
-            # Công thức Eurocode 2
             beta = np.exp(s * (1.0 - np.sqrt(28.0 / age)))
             strength = f28 * beta
         strengths.append(strength)
     
     strengths = np.array(strengths)
     
-    # Vẽ biểu đồ
     fig = go.Figure()
     
     fig.add_trace(go.Scatter(
@@ -312,7 +303,6 @@ def create_strength_development_chart(design: Dict, predictor, cement_type: str 
         hovertemplate='<b>f28: %{y:.1f} MPa</b><extra></extra>'
     ))
     
-    # Grid lines
     for age in [3, 7, 28]:
         fig.add_vline(x=age, line_dash="dash", line_color="gray", opacity=0.3)
     
@@ -330,7 +320,7 @@ def create_strength_development_chart(design: Dict, predictor, cement_type: str 
         margin=dict(l=20, r=20, t=40, b=20)
     )
     
-    return fig, s  # Trả về cả s để dùng cho bảng số liệu
+    return fig, s
 
 
 def create_s_parameter_comparison_chart(results: Dict) -> go.Figure:
@@ -381,9 +371,9 @@ def create_s_parameter_comparison_chart(results: Dict) -> go.Figure:
 # ===== MAIN APP =====
 
 def main():
-    st.set_page_config(page_title="Concrete Optimizer", layout="wide", page_icon="🗿")
-    st.title("🗿 Multi-Cement Concrete Mix Design Optimizer")
-    st.caption("NSGA-II Multi-objective Optimization System")
+    st.set_page_config(page_title="Concrete Optimizer V2", layout="wide", page_icon="🗿")
+    st.title("🗿 Multi-Cement Concrete Mix Design Optimizer V2")
+    st.caption("NSGA-II Multi-objective Optimization System - OPTIMIZED")
     st.markdown("---")
     
     predictor, model_status = load_predictor_singleton()
@@ -413,10 +403,43 @@ def main():
     st.subheader("⚙️ Optimization Settings")
     cement_types = st.multiselect("Select cement types", ["PC40", "PC50"], ["PC40", "PC50"])
     
-    c1, c2, c3 = st.columns(3)
-    pop_size = c1.number_input("Population size", 50, 300, 100, 10)
-    n_gen = c2.number_input("Generations", 50, 500, 200, 10)
-    seed = c3.number_input("Random seed", 0, 9999, 42, 1)
+    # ✅ NEW: Optimization mode selector
+    opt_mode = st.selectbox(
+        "Optimization Mode",
+        ["Ultra Fast (Demo)", "Fast (Testing)", "Balanced (Recommended)", "Quality (Best)", "Custom"],
+        index=2  # Default: Balanced
+    )
+    
+    mode_configs = {
+        "Ultra Fast (Demo)": {"pop": 30, "gen": 50, "time": "~1 min"},
+        "Fast (Testing)": {"pop": 50, "gen": 100, "time": "~2-3 min"},
+        "Balanced (Recommended)": {"pop": 100, "gen": 200, "time": "~5-7 min"},
+        "Quality (Best)": {"pop": 150, "gen": 300, "time": "~10-15 min"}
+    }
+    
+    if opt_mode == "Custom":
+        c1, c2, c3 = st.columns(3)
+        pop_size = c1.number_input("Population size", 30, 300, 100, 10)
+        n_gen = c2.number_input("Generations", 50, 500, 200, 10)
+        seed = c3.number_input("Random seed", 0, 9999, 42, 1)
+    else:
+        config = mode_configs[opt_mode]
+        c1, c2, c3 = st.columns(3)
+        pop_size = config["pop"]
+        n_gen = config["gen"]
+        c1.metric("Population", pop_size)
+        c2.metric("Generations", n_gen)
+        c3.metric("Est. Time", config["time"])
+        seed = 42
+    
+    # ✅ NEW: Advanced options
+    with st.expander("🔧 Advanced Optimization Options"):
+        use_adaptive = st.checkbox("Adaptive population sizing", value=True, 
+                                   help="Tự động giảm pop_size cho problems đơn giản")
+        use_early_stop = st.checkbox("Early stopping", value=True,
+                                     help="Dừng sớm khi đã converged hoặc timeout")
+        use_cache = st.checkbox("Result caching", value=True,
+                               help="Cache kết quả để tránh tính lại")
     
     if st.button("🚀 Run Optimization", type="primary"):
         if not cement_types:
@@ -433,13 +456,39 @@ def main():
                 output_dir=str(ROOT / "outputs"),
                 predictor=predictor
             )
+            
+            # ✅ NEW: Pass optimization parameters
+            opt_config = {
+                "pop_size": int(pop_size), 
+                "n_gen": int(n_gen), 
+                "seed": int(seed),
+                "use_adaptive": use_adaptive,
+                "use_early_stop": use_early_stop,
+                "use_cache": use_cache
+            }
+            
             results = workflow.run_optimization(
                 user_input=user_input,
                 cement_types=cement_types,
-                optimization_config={"pop_size": int(pop_size), "n_gen": int(n_gen), "seed": int(seed)}
+                optimization_config=opt_config
             )
         
         st.success("✅ Optimization complete!")
+        
+        # ✅ NEW: Show optimization stats
+        with st.expander("📊 Optimization Statistics"):
+            for ct, opt_res in results["optimization_results"].items():
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric(f"{ct} Time", f"{opt_res.get('optimization_time', 0):.1f}s")
+                col2.metric("Solutions", len(opt_res['pareto_front'][0]))
+                
+                # Cache stats if available
+                if 'problem' in opt_res and hasattr(opt_res['problem'], 'get_cache_stats'):
+                    cache_stats = opt_res['problem'].get_cache_stats()
+                    if cache_stats.get('enabled'):
+                        col3.metric("Cache Hit Rate", f"{cache_stats['hit_rate']:.1f}%")
+                        col4.metric("Cache Size", cache_stats['size'])
+        
         st.session_state["workflow"] = workflow
         st.session_state["results"] = results
     
@@ -460,7 +509,7 @@ def main():
                 cols[2].metric("Slump (mm)", f"{top_design['predictions']['slump']:.0f}")
                 cols[3].metric("CO₂ (kg/m³)", f"{top_design['objectives']['co2']:.0f}")
             
-            st.markdown("### 📝 Recommendations")
+            st.markdown("### 🔍 Recommendations")
             for rec in results["recommendations"]:
                 st.write(f"- {rec}")
         

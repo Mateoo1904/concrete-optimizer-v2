@@ -1,6 +1,8 @@
 """
-multi_cement_workflow.py - Workflow tối ưu cho nhiều loại xi măng
-✅ FIXED: Không pickle predictor để tránh lỗi
+multi_cement_workflow.py - FULL OPTIMIZED VERSION
+✅ Không pickle predictor để tránh lỗi
+✅ Support các optimization parameters mới
+✅ Adaptive sizing, early stopping, caching
 """
 import numpy as np
 import pandas as pd
@@ -32,7 +34,8 @@ except ImportError:
 class MultiCementWorkflow:
     """
     Workflow hoàn chỉnh cho optimization nhiều loại xi măng
-    ✅ FIXED: Không pickle predictor khi save results
+    ✅ OPTIMIZED: Không pickle predictor khi save results
+    ✅ Support adaptive sizing, early stopping, caching
     """
     
     def __init__(
@@ -61,7 +64,7 @@ class MultiCementWorkflow:
             print("   Creating new predictor instance")
             self.predictor = UnifiedPredictor()
         
-        # ✅ THÊM: Khởi tạo material_db (sẽ update density sau khi có user_input)
+        # ✅ Khởi tạo material_db (sẽ update density sau khi có user_input)
         self.material_db = MaterialDatabase()
         self.cost_calc = CostCalculator(self.material_db)
         self.co2_calc = CO2Calculator(self.material_db)
@@ -85,7 +88,7 @@ class MultiCementWorkflow:
         Args:
             user_input: Dict từ UI với yêu cầu người dùng
             cement_types: List các loại xi măng
-            optimization_config: Config cho NSGA-II
+            optimization_config: Config cho NSGA-II (bao gồm adaptive, early_stop, cache)
         
         Returns:
             {
@@ -104,7 +107,10 @@ class MultiCementWorkflow:
             optimization_config = {
                 'pop_size': 100,
                 'n_gen': 200,
-                'seed': 42
+                'seed': 42,
+                'use_adaptive': True,
+                'use_early_stop': True,
+                'use_cache': True
             }
         
         # Step 1: Validate inputs
@@ -117,17 +123,30 @@ class MultiCementWorkflow:
             return {'error': validation['errors']}
         print("✅ Inputs valid")
         
-        # ✅ THÊM: Update custom density nếu có
+        # ✅ Update custom density nếu có
         if 'material_density' in user_input:
             print("   Applying custom material density...")
             self.material_db.set_custom_density(user_input['material_density'])
         
         # Step 2: Run optimization cho từng cement type
         print("\n📋 Step 2: Running optimization...")
+        
+        # ✅ Extract optimization parameters
+        pop_size = optimization_config.get('pop_size', 100)
+        n_gen = optimization_config.get('n_gen', 200)
+        seed = optimization_config.get('seed', 42)
+        use_adaptive = optimization_config.get('use_adaptive', True)
+        use_early_stop = optimization_config.get('use_early_stop', True)
+        use_cache = optimization_config.get('use_cache', True)
+        
         self.optimizer = MixDesignOptimizer(
             predictor=self.predictor,
             material_db=self.material_db,
-            **optimization_config
+            pop_size=pop_size,
+            n_gen=n_gen,
+            seed=seed,
+            use_adaptive=use_adaptive,
+            use_early_stop=use_early_stop
         )
         
         optimization_results = self.optimizer.optimize(
@@ -450,7 +469,13 @@ if __name__ == "__main__":
     results = workflow.run_optimization(
         user_input=user_input,
         cement_types=['PC40', 'PC50'],
-        optimization_config={'pop_size': 100, 'n_gen': 200}
+        optimization_config={
+            'pop_size': 100, 
+            'n_gen': 200,
+            'use_adaptive': True,
+            'use_early_stop': True,
+            'use_cache': True
+        }
     )
     
     # Export cho production
