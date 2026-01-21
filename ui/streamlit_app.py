@@ -116,19 +116,19 @@ def build_user_input(material_db: MaterialDatabase) -> Dict:
     """Đọc input từ sidebar Streamlit"""
     st.sidebar.subheader("🎯 Design Targets")
     
-    fc_target = st.sidebar.slider("Target strength f'c (MPa)", 20, 80, 40, 1)
-    age_target = st.sidebar.selectbox("Age (days)", [3, 7, 14, 28, 56], 3)
-    slump_target = st.sidebar.slider("Target slump (mm)", 50, 250, 180, 10)
-    slump_tolerance = st.sidebar.slider("Slump tolerance (±mm)", 10, 50, 20, 5)
+    fc_target = st.sidebar.slider("Cường độ mong muốn (MPa)", 20, 80, 40, 1)
+    age_target = st.sidebar.selectbox("Tuổi ngày (days)", [3, 7, 14, 28, 56], 3)
+    slump_target = st.sidebar.slider("Độ sụt mong muốn (mm)", 50, 250, 180, 10)
+    slump_tolerance = st.sidebar.slider("Sai số thiết kế của độ sụt (±mm)", 10, 50, 20, 5)
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🧱 Available Materials")
+    st.sidebar.subheader("🧱 Phụ gia khoáng sử dụng")
     
     available = {
-        "Xỉ (Slag)": {"available": st.sidebar.checkbox("Slag", True), "category": "SCM"},
-        "Tro bay (Flyash)": {"available": st.sidebar.checkbox("Fly ash", True), "category": "SCM"},
+        "Xỉ (Slag)": {"available": st.sidebar.checkbox("Xỉ", True), "category": "SCM"},
+        "Tro bay (Flyash)": {"available": st.sidebar.checkbox("Tro bay", True), "category": "SCM"},
         "Silica fume": {"available": st.sidebar.checkbox("Silica fume", False), "category": "SCM"},
-        "Phụ gia siêu dẻo (SP)": {"available": st.sidebar.checkbox("Superplasticizer (SP)", True)}
+        "Phụ gia siêu dẻo (SP)": {"available": st.sidebar.checkbox("Phụ gia siêu dẻo (SP)", True)}
     }
     
     st.sidebar.markdown("---")
@@ -372,7 +372,7 @@ def create_s_parameter_comparison_chart(results: Dict) -> go.Figure:
 
 def main():
     st.set_page_config(page_title="Concrete Optimizer V2", layout="wide", page_icon="🗿")
-    st.title("🗿 Multi-Cement Concrete Mix Design Optimizer V2")
+    st.title("Mô hình thiết kế và tối ưu hóa cấp phối bê tông")
     st.caption("NSGA-II Multi-objective Optimization System - OPTIMIZED")
     st.markdown("---")
     
