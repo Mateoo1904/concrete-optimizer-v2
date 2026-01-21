@@ -132,10 +132,10 @@ def build_user_input(material_db: MaterialDatabase) -> Dict:
     }
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("⚙️ Material Properties")
+    st.sidebar.subheader("⚙️ Tính chất vật liệu")
     
     with st.sidebar.expander("🔧 Advanced Settings", expanded=False):
-        tab1, tab2 = st.tabs(["📊 Mass Limits (kg/m³)", "⚖️ Density (kg/m³)"])
+        tab1, tab2 = st.tabs(["📊 Khối lượng thể tích (kg/m³)", "⚖️ Khối lượng riêng (kg/m³)"])
         
         with tab1:
             st.markdown("**Binder Components**")
