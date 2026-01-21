@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 """
 streamlit_app.py - FULL OPTIMIZED VERSION
 ✅ Proper predictor initialization with Streamlit cache
