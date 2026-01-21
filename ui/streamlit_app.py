@@ -197,12 +197,12 @@ def build_user_input(material_db: MaterialDatabase) -> Dict:
     }
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("⚖️ Preference Weights")
+    st.sidebar.subheader("⚖️ Trọng số ưu tiên")
     
-    cost_w = st.sidebar.slider("Cost weight", 0.0, 1.0, 0.4, 0.05)
-    perf_w = st.sidebar.slider("Performance weight", 0.0, 1.0, 0.3, 0.05)
-    sus_w = st.sidebar.slider("Sustainability weight", 0.0, 1.0, 0.2, 0.05)
-    work_w = st.sidebar.slider("Workability weight", 0.0, 1.0, 0.1, 0.05)
+    cost_w = st.sidebar.slider("Giá thành", 0.0, 1.0, 0.4, 0.05)
+    perf_w = st.sidebar.slider("Cường độ", 0.0, 1.0, 0.3, 0.05)
+    sus_w = st.sidebar.slider("Lượng phát thải", 0.0, 1.0, 0.2, 0.05)
+    work_w = st.sidebar.slider("Độ sụt", 0.0, 1.0, 0.1, 0.05)
     
     total = cost_w + perf_w + sus_w + work_w
     if total == 0: total = 1.0
