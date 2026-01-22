@@ -174,8 +174,15 @@ class MixDesignOptimizer:
             elapsed = time.time() - start_time
 
             # ✅ FIX: Kiểm tra res.X và res.F trước khi sử dụng
-            if res.X is None or res.F is None or len(res.X) == 0:
-                raise ValueError(f"Optimization failed to find solutions for {cement_type}")
+            if res.X is None or res.F is None:
+                print(f"❌ res.X is None: {res.X is None}, res.F is None: {res.F is None}")
+                raise ValueError(f"Optimization returned None for {cement_type}")
+            
+            if len(res.X) == 0:
+                print(f"❌ Optimization found 0 solutions for {cement_type}")
+                print(f"   This usually means constraints are too strict")
+                print(f"   Try: 1) Relaxing constraints, 2) Increasing pop_size/n_gen, 3) Checking bounds")
+                raise ValueError(f"Optimization found no valid solutions for {cement_type}")
 
             X_pareto = res.X
             F_pareto = res.F
@@ -216,15 +223,21 @@ class MixDesignOptimizer:
         n: int = 5
     ) -> List[Dict]:
         """
-        ✅ FIXED: Kiểm tra empty arrays
+        ✅ FIXED: Kiểm tra empty arrays + Better logging
         """
+        print(f"\n🔍 _select_diverse_designs called:")
+        print(f"   X shape: {X.shape}")
+        print(f"   F shape: {F.shape}")
+        
         if len(X) == 0 or len(F) == 0:
-            print("⚠️ No solutions to select from")
+            print("❌ No solutions to select from (X or F is empty)")
             return []
 
         designs = []
         selected_indices = set()
         fc_target = user_input.get('fc_target', 40)
+        
+        print(f"   fc_target: {fc_target}")
         
         # Tính actual strength cho mỗi design
         actual_strengths = []
@@ -247,10 +260,12 @@ class MixDesignOptimizer:
                 
                 actual_strengths.append(fc_age)
             except Exception as e:
-                print(f"⚠️ Error computing strength for design {i}: {e}")
+                print(f"   ⚠️ Error computing strength for design {i}: {e}")
                 actual_strengths.append(0)
         
         actual_strengths = np.array(actual_strengths)
+        print(f"   Actual strengths range: [{actual_strengths.min():.1f}, {actual_strengths.max():.1f}] MPa")
+        print(f"   Designs meeting fc_target: {np.sum(actual_strengths >= fc_target)}/{len(actual_strengths)}")
 
         # 1. Cost Optimized
         idx_cheap = np.argmin(F[:, 0])
@@ -318,6 +333,10 @@ class MixDesignOptimizer:
         selected_indices.add(idx_slump)
         designs.append(self._format_design(X[idx_slump], F[idx_slump], problem, "Slump Optimized"))
 
+        print(f"   ✅ Selected {len(designs)} diverse designs")
+        for i, d in enumerate(designs, 1):
+            print(f"      {i}. {d['profile']}: f28={d['predictions']['f28']:.1f} MPa, cost={d['objectives']['cost']:,.0f} VNĐ")
+        
         return designs
 
     def _format_design(
