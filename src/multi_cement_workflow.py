@@ -1,8 +1,7 @@
 """
-multi_cement_workflow.py - FULL OPTIMIZED VERSION
-✅ Không pickle predictor để tránh lỗi
-✅ Support các optimization parameters mới
-✅ Adaptive sizing, early stopping, caching
+multi_cement_workflow.py - FIXED VERSION
+✅ Handle empty ranked_designs gracefully
+✅ Better validation and error messages
 """
 import numpy as np
 import pandas as pd
@@ -10,10 +9,9 @@ from typing import Dict, List, Tuple, Optional
 import joblib
 from pathlib import Path
 from datetime import datetime
+import traceback
 
-# =========================================================================
 # SAFE IMPORT
-# =========================================================================
 try:
     from predictor_unified import UnifiedPredictor
     from material_database import MaterialDatabase
@@ -28,14 +26,12 @@ except ImportError:
     from src.result_processor import ResultProcessor
     from src.cost_calculator import CostCalculator
     from src.co2_calculator import CO2Calculator
-# =========================================================================
 
 
 class MultiCementWorkflow:
     """
     Workflow hoàn chỉnh cho optimization nhiều loại xi măng
-    ✅ OPTIMIZED: Không pickle predictor khi save results
-    ✅ Support adaptive sizing, early stopping, caching
+    ✅ FIXED: Handle empty results gracefully
     """
     
     def __init__(
@@ -44,17 +40,10 @@ class MultiCementWorkflow:
         output_dir: str = "outputs",
         predictor: Optional[UnifiedPredictor] = None
     ):
-        """
-        Args:
-            models_dir: Thư mục chứa trained models
-            output_dir: Thư mục lưu kết quả
-            predictor: UnifiedPredictor instance (nếu None thì tạo mới)
-        """
         self.models_dir = Path(models_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize components
         print("🔧 Initializing components...")
         
         if predictor is not None:
@@ -64,7 +53,6 @@ class MultiCementWorkflow:
             print("   Creating new predictor instance")
             self.predictor = UnifiedPredictor()
         
-        # ✅ Khởi tạo material_db (sẽ update density sau khi có user_input)
         self.material_db = MaterialDatabase()
         self.cost_calc = CostCalculator(self.material_db)
         self.co2_calc = CO2Calculator(self.material_db)
@@ -84,25 +72,12 @@ class MultiCementWorkflow:
     ) -> Dict:
         """
         Chạy optimization workflow hoàn chỉnh
-        
-        Args:
-            user_input: Dict từ UI với yêu cầu người dùng
-            cement_types: List các loại xi măng
-            optimization_config: Config cho NSGA-II (bao gồm adaptive, early_stop, cache)
-        
-        Returns:
-            {
-                'optimization_results': Dict,
-                'processed_results': Dict,
-                'comparison': Dict,
-                'recommendations': List[str]
-            }
+        ✅ FIXED: Handle empty results
         """
         print("\n" + "="*70)
         print("🚀 MULTI-CEMENT OPTIMIZATION WORKFLOW")
         print("="*70)
         
-        # Default config
         if optimization_config is None:
             optimization_config = {
                 'pop_size': 100,
@@ -123,15 +98,14 @@ class MultiCementWorkflow:
             return {'error': validation['errors']}
         print("✅ Inputs valid")
         
-        # ✅ Update custom density nếu có
+        # Update custom density if provided
         if 'material_density' in user_input:
             print("   Applying custom material density...")
             self.material_db.set_custom_density(user_input['material_density'])
         
-        # Step 2: Run optimization cho từng cement type
+        # Step 2: Run optimization
         print("\n📋 Step 2: Running optimization...")
         
-        # ✅ Extract optimization parameters
         pop_size = optimization_config.get('pop_size', 100)
         n_gen = optimization_config.get('n_gen', 200)
         seed = optimization_config.get('seed', 42)
@@ -149,32 +123,56 @@ class MultiCementWorkflow:
             use_early_stop=use_early_stop
         )
         
-        optimization_results = self.optimizer.optimize(
-            user_input=user_input,
-            cement_types=cement_types,
-            verbose=True
-        )
+        try:
+            optimization_results = self.optimizer.optimize(
+                user_input=user_input,
+                cement_types=cement_types,
+                verbose=True
+            )
+        except Exception as e:
+            print(f"❌ Optimization error: {e}")
+            traceback.print_exc()
+            return {
+                'error': f"Optimization failed: {str(e)}",
+                'optimization_results': {},
+                'processed_results': {},
+                'comparison': {},
+                'recommendations': [f"❌ Optimization failed: {str(e)}"]
+            }
         
         # Step 3: Process results
         print("\n📋 Step 3: Processing results...")
-        processed_results = self.processor.process_results(
-            optimization_results,
-            user_preferences=user_input.get('preferences', None)
-        )
+        try:
+            processed_results = self.processor.process_results(
+                optimization_results,
+                user_preferences=user_input.get('preferences', None)
+            )
+        except Exception as e:
+            print(f"❌ Processing error: {e}")
+            traceback.print_exc()
+            processed_results = {}
         
-        # Step 4: Compare cement types (nếu có nhiều)
+        # Step 4: Compare cement types (if multiple)
         comparison = {}
         if len(cement_types) > 1:
             print("\n📋 Step 4: Comparing cement types...")
-            comparison = self._compare_cement_types(processed_results)
+            try:
+                comparison = self._compare_cement_types(processed_results)
+            except Exception as e:
+                print(f"⚠️ Comparison error: {e}")
+                comparison = {}
         
         # Step 5: Generate recommendations
         print("\n📋 Step 5: Generating recommendations...")
-        recommendations = self._generate_recommendations(
-            processed_results,
-            comparison,
-            user_input
-        )
+        try:
+            recommendations = self._generate_recommendations(
+                processed_results,
+                comparison,
+                user_input
+            )
+        except Exception as e:
+            print(f"⚠️ Recommendation error: {e}")
+            recommendations = [f"⚠️ Could not generate recommendations: {str(e)}"]
         
         # Save results
         self.results = {
@@ -186,7 +184,6 @@ class MultiCementWorkflow:
             'session_id': self.session_id
         }
         
-        # ✅ FIX: Chỉ save CSV, KHÔNG pickle toàn bộ results
         self._save_results_csv_only()
         
         print("\n" + "="*70)
@@ -195,21 +192,15 @@ class MultiCementWorkflow:
         
         return self.results
     
-    def _validate_inputs(
-        self,
-        user_input: Dict,
-        cement_types: List[str]
-    ) -> Dict:
+    def _validate_inputs(self, user_input: Dict, cement_types: List[str]) -> Dict:
         """Validate user inputs"""
         errors = []
         
-        # Check required fields
         required = ['fc_target', 'age_target', 'slump_target', 'slump_tolerance']
         for field in required:
             if field not in user_input:
                 errors.append(f"Missing required field: {field}")
         
-        # Check ranges
         if 'fc_target' in user_input:
             if not (15 <= user_input['fc_target'] <= 80):
                 errors.append("fc_target must be between 15-80 MPa")
@@ -218,7 +209,6 @@ class MultiCementWorkflow:
             if not (50 <= user_input['slump_target'] <= 250):
                 errors.append("slump_target must be between 50-250 mm")
         
-        # Check cement types
         valid_cements = ['PC40', 'PC50']
         for ct in cement_types:
             if ct not in valid_cements:
@@ -230,7 +220,7 @@ class MultiCementWorkflow:
         }
     
     def _compare_cement_types(self, processed_results: Dict) -> Dict:
-        """So sánh giữa các loại xi măng"""
+        """So sánh giữa các loại xi măng - ✅ FIXED"""
         if len(processed_results) < 2:
             return {}
         
@@ -240,6 +230,11 @@ class MultiCementWorkflow:
         for i in range(len(cement_types)):
             for j in range(i+1, len(cement_types)):
                 ct1, ct2 = cement_types[i], cement_types[j]
+                
+                # ✅ CHECK: Ensure ranked_designs exist
+                if not processed_results[ct1]['ranked_designs'] or not processed_results[ct2]['ranked_designs']:
+                    print(f"⚠️ Cannot compare {ct1} vs {ct2}: missing designs")
+                    continue
                 
                 design1 = processed_results[ct1]['ranked_designs'][0]
                 design2 = processed_results[ct2]['ranked_designs'][0]
@@ -256,11 +251,11 @@ class MultiCementWorkflow:
                 key = f"{ct1}_vs_{ct2}"
                 comparisons[key] = {
                     'cost_difference': cost2 - cost1,
-                    'cost_pct': (cost2 - cost1) / cost1 * 100,
+                    'cost_pct': (cost2 - cost1) / cost1 * 100 if cost1 > 0 else 0,
                     'strength_difference': strength2 - strength1,
-                    'strength_pct': (strength2 - strength1) / strength1 * 100,
+                    'strength_pct': (strength2 - strength1) / strength1 * 100 if strength1 > 0 else 0,
                     'co2_difference': co2_2 - co2_1,
-                    'co2_pct': (co2_2 - co2_1) / co2_1 * 100,
+                    'co2_pct': (co2_2 - co2_1) / co2_1 * 100 if co2_1 > 0 else 0,
                     'recommendation': self._make_recommendation(cost1, cost2, strength1, strength2)
                 }
         
@@ -268,6 +263,9 @@ class MultiCementWorkflow:
     
     def _make_recommendation(self, cost1, cost2, str1, str2):
         """Tạo recommendation dựa trên so sánh"""
+        if cost1 == 0 or str1 == 0:
+            return "Insufficient data for comparison"
+        
         cost_diff_pct = (cost2 - cost1) / cost1 * 100
         str_diff_pct = (str2 - str1) / str1 * 100
         
@@ -284,10 +282,19 @@ class MultiCementWorkflow:
         comparison: Dict,
         user_input: Dict
     ) -> List[str]:
-        """Generate recommendations dựa trên kết quả"""
+        """
+        Generate recommendations - ✅ FIXED: Handle empty designs
+        """
         recommendations = []
         
         for cement_type, result in processed_results.items():
+            # ✅ CHECK: Ensure ranked_designs exist
+            if not result['ranked_designs']:
+                recommendations.append(
+                    f"⚠️ {cement_type}: No valid designs found. Try relaxing constraints or increasing population/generations."
+                )
+                continue
+            
             top_design = result['ranked_designs'][0]
             
             # Recommendation 1: Cost efficiency
@@ -344,17 +351,20 @@ class MultiCementWorkflow:
         return recommendations
     
     def _save_results_csv_only(self):
-        """
-        ✅ FIX: Chỉ lưu CSV (Pareto front + recommendations)
-        KHÔNG pickle toàn bộ results vì chứa predictor
-        """
+        """Save CSV results only"""
         session_dir = self.output_dir / self.session_id
         session_dir.mkdir(exist_ok=True)
         
         try:
-            # Save Pareto fronts as CSV
             for cement_type, opt_result in self.results['optimization_results'].items():
+                if 'error' in opt_result:
+                    continue
+                
                 X, F = opt_result['pareto_front']
+                
+                if len(X) == 0:
+                    print(f"⚠️ No solutions to save for {cement_type}")
+                    continue
                 
                 df = pd.DataFrame(X, columns=[
                     'cement', 'water', 'flyash', 'slag', 'silica_fume',
@@ -380,33 +390,27 @@ class MultiCementWorkflow:
             
         except Exception as e:
             print(f"⚠️ Warning: Could not save some results: {e}")
-            # Không crash app, chỉ warning
     
-    def export_for_production(
-        self,
-        design_ids: List[Tuple[str, int]]
-    ) -> str:
-        """
-        Export selected designs cho production
-        
-        Args:
-            design_ids: List of (cement_type, design_index)
-        
-        Returns:
-            Path to export file
-        """
+    def export_for_production(self, design_ids: List[Tuple[str, int]]) -> str:
+        """Export selected designs for production"""
         export_data = []
         
         for cement_type, idx in design_ids:
-            design = self.results['processed_results'][cement_type]['ranked_designs'][idx]
+            if cement_type not in self.results['processed_results']:
+                continue
             
+            ranked = self.results['processed_results'][cement_type]['ranked_designs']
+            
+            if idx >= len(ranked):
+                print(f"⚠️ Design index {idx} out of range for {cement_type}")
+                continue
+            
+            design = ranked[idx]
             mix = design['mix_design']
             
             export_data.append({
                 'cement_type': cement_type,
                 'profile': design['profile'],
-                
-                # Mix proportions
                 'cement_kg': mix['cement'],
                 'water_kg': mix['water'],
                 'flyash_kg': mix.get('flyash', 0),
@@ -415,73 +419,25 @@ class MultiCementWorkflow:
                 'sp_kg': mix.get('superplasticizer', 0),
                 'fine_agg_kg': mix['fine_agg'],
                 'coarse_agg_kg': mix['coarse_agg'],
-                
-                # Properties
                 'w_b': mix['water'] / (mix['cement'] + mix.get('flyash', 0) + 
                                        mix.get('slag', 0) + mix.get('silica_fume', 0)),
-                
-                # Predictions
                 'predicted_f28_MPa': design['predictions']['f28'],
                 'predicted_slump_mm': design['predictions']['slump'],
-                
-                # Economics
                 'cost_VND_per_m3': design['objectives']['cost'],
                 'co2_kg_per_m3': design['objectives']['co2']
             })
         
-        df = pd.DataFrame(export_data)
+        if not export_data:
+            print("⚠️ No valid designs to export")
+            return ""
         
+        df = pd.DataFrame(export_data)
         export_path = self.output_dir / self.session_id / "production_designs.csv"
         df.to_csv(export_path, index=False)
         
         print(f"📤 Production designs exported to: {export_path}")
-        
         return str(export_path)
 
 
-# ===== EXAMPLE USAGE =====
 if __name__ == "__main__":
-    workflow = MultiCementWorkflow(
-        models_dir="models",
-        output_dir="outputs"
-    )
-    
-    user_input = {
-        'fc_target': 40.0,
-        'age_target': 28,
-        'slump_target': 180,
-        'slump_tolerance': 20,
-        'available_materials': {
-            'Xỉ (Slag)': {'available': True, 'category': 'SCM'},
-            'Tro bay (Flyash)': {'available': True, 'category': 'SCM'},
-            'Silica fume': {'available': False},
-            'Phụ gia siêu dẻo (SP)': {'available': True}
-        },
-        'preferences': {
-            'cost': 0.4,
-            'performance': 0.3,
-            'sustainability': 0.2,
-            'workability': 0.1
-        }
-    }
-    
-    # Run workflow
-    results = workflow.run_optimization(
-        user_input=user_input,
-        cement_types=['PC40', 'PC50'],
-        optimization_config={
-            'pop_size': 100, 
-            'n_gen': 200,
-            'use_adaptive': True,
-            'use_early_stop': True,
-            'use_cache': True
-        }
-    )
-    
-    # Export cho production
-    export_path = workflow.export_for_production([
-        ('PC40', 0),
-        ('PC50', 0)
-    ])
-    
-    print("\n✅ Workflow complete!")
+    print("✅ multi_cement_workflow.py - WITH ROBUST ERROR HANDLING!")
