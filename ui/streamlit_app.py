@@ -1,17 +1,20 @@
 """
-streamlit_app.py - FULL OPTIMIZED VERSION
-✅ Proper predictor initialization with Streamlit cache
-✅ Fixed CO2 breakdown chart
-✅ S-Curve visualization
-✅ Optimization modes selector
-✅ Cache statistics display
+streamlit_app.py - FULL OPTIMIZED VERSION WITH BETTER ERROR HANDLING
+✅ Complete functionality preserved
+✅ Robust error handling for Streamlit Cloud
+✅ Better debug info
 """
 
 import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+# ✅ FIX: Detect environment properly
+if "STREAMLIT_SHARING_MODE" in os.environ or "STREAMLIT_CLOUD" in os.environ:
+    ROOT = Path("/mount/src/concrete-optimizer-v2")
+else:
+    ROOT = Path(__file__).resolve().parent.parent
+
 sys.path.insert(0, str(ROOT / "src"))
 
 import streamlit as st
@@ -20,6 +23,7 @@ import numpy as np
 from typing import List, Dict
 import plotly.graph_objects as go
 import plotly.express as px
+import traceback
 
 # ===== CRITICAL FIX: Define OptimalSlumpFeatureBuilder for pickle =====
 class OptimalSlumpFeatureBuilder:
@@ -76,38 +80,48 @@ class OptimalSlumpFeatureBuilder:
 
         return df[self.feature_names]
 
-# Register class in sys.modules for pickle
 if 'OptimalSlumpFeatureBuilder' not in sys.modules['__main__'].__dict__:
     sys.modules['__main__'].OptimalSlumpFeatureBuilder = OptimalSlumpFeatureBuilder
 
-from multi_cement_workflow import MultiCementWorkflow
-from advanced_visualizer import AdvancedVisualizer
-from sensitivity_analyzer import SensitivityAnalyzer
-from material_database import MaterialDatabase
-from pdf_report_generator import PDFReportGenerator
+# Import modules
+try:
+    from multi_cement_workflow import MultiCementWorkflow
+    from advanced_visualizer import AdvancedVisualizer
+    from sensitivity_analyzer import SensitivityAnalyzer
+    from material_database import MaterialDatabase
+    from pdf_report_generator import PDFReportGenerator
+except ImportError as e:
+    st.error(f"❌ Import Error: {e}")
+    st.error(f"ROOT: {ROOT}")
+    st.error(f"sys.path: {sys.path}")
+    st.stop()
 
 
 # ===== CACHE PREDICTOR PROPERLY =====
 @st.cache_resource(show_spinner=False)
 def load_predictor_singleton():
     """Load predictor một lần duy nhất và cache"""
-    with st.spinner("🔄 Loading AI models..."):
-        from predictor_unified import UnifiedPredictor
-        import importlib
-        import predictor_unified as pred_module
-        importlib.reload(pred_module)
+    try:
+        with st.spinner("🔄 Loading AI models..."):
+            from predictor_unified import UnifiedPredictor
+            import importlib
+            import predictor_unified as pred_module
+            importlib.reload(pred_module)
+            
+            predictor = pred_module.UnifiedPredictor()
         
-        predictor = pred_module.UnifiedPredictor()
-    
-    # Validate models
-    model_status = {
-        "f28": predictor.f28_bundle is not None,
-        "s": predictor.s_bundle is not None,
-        "slump_builder": predictor.slump_builder is not None,
-        "slump_folds": len(predictor.slump_models)
-    }
-    
-    return predictor, model_status
+        model_status = {
+            "f28": predictor.f28_bundle is not None,
+            "s": predictor.s_bundle is not None,
+            "slump_builder": predictor.slump_builder is not None,
+            "slump_folds": len(predictor.slump_models)
+        }
+        
+        return predictor, model_status
+    except Exception as e:
+        st.error(f"❌ Error loading predictor: {e}")
+        st.code(traceback.format_exc())
+        st.stop()
 
 
 # ===== HELPER FUNCTIONS =====
@@ -255,8 +269,6 @@ def create_co2_breakdown_chart(co2_data: Dict) -> go.Figure:
     return fig
 
 
-# ===== S-CURVE VISUALIZATION =====
-
 def create_strength_development_chart(design: Dict, predictor, cement_type: str = "PC40") -> go.Figure:
     """Tạo biểu đồ đường cong phát triển cường độ (s-curve)"""
     mix = design['mix_design']
@@ -330,7 +342,7 @@ def create_s_parameter_comparison_chart(results: Dict) -> go.Figure:
     for cement_type, proc in results["processed_results"].items():
         for design in proc["ranked_designs"][:3]:
             if 's' in design['predictions']:
-                 data.append({
+                data.append({
                     "Cement Type": cement_type,
                     "Design": design['profile'],
                     "s-parameter": design['predictions']['s'],
@@ -374,6 +386,23 @@ def main():
     st.set_page_config(page_title="Concrete Optimizer V2", layout="wide", page_icon="🗿")
     st.title("🗿 Multi-Cement Concrete Mix Design Optimizer V2")
     st.caption("NSGA-II Multi-objective Optimization System - OPTIMIZED")
+    
+    # ✅ Debug mode
+    if st.sidebar.checkbox("🐛 Debug Mode", False):
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**System Info:**")
+        st.sidebar.code(f"ROOT: {ROOT}")
+        st.sidebar.code(f"Python: {sys.version}")
+        st.sidebar.code(f"Working Dir: {os.getcwd()}")
+        
+        models_dir = ROOT / "models"
+        st.sidebar.markdown(f"Models dir exists: {models_dir.exists()}")
+        if models_dir.exists():
+            model_files = list(models_dir.glob("*.pkl"))
+            st.sidebar.code(f"Model files: {len(model_files)}")
+            for f in model_files[:5]:
+                st.sidebar.text(f"- {f.name}")
+    
     st.markdown("---")
     
     predictor, model_status = load_predictor_singleton()
@@ -401,13 +430,12 @@ def main():
             c4.metric("Coarse Agg", f"{b['coarse_agg'][0]}-{b['coarse_agg'][1]}")
     
     st.subheader("⚙️ Optimization Settings")
-    cement_types = st.multiselect("Select cement types", ["PC40", "PC50"], ["PC40", "PC50"])
+    cement_types = st.multiselect("Select cement types", ["PC40", "PC50"], ["PC40"])
     
-    # ✅ NEW: Optimization mode selector
     opt_mode = st.selectbox(
         "Optimization Mode",
         ["Ultra Fast (Demo)", "Fast (Testing)", "Balanced (Recommended)", "Quality (Best)", "Custom"],
-        index=2  # Default: Balanced
+        index=0  # Default: Ultra Fast for testing on Cloud
     )
     
     mode_configs = {
@@ -432,14 +460,10 @@ def main():
         c3.metric("Est. Time", config["time"])
         seed = 42
     
-    # ✅ NEW: Advanced options
     with st.expander("🔧 Advanced Optimization Options"):
-        use_adaptive = st.checkbox("Adaptive population sizing", value=True, 
-                                   help="Tự động giảm pop_size cho problems đơn giản")
-        use_early_stop = st.checkbox("Early stopping", value=True,
-                                     help="Dừng sớm khi đã converged hoặc timeout")
-        use_cache = st.checkbox("Result caching", value=True,
-                               help="Cache kết quả để tránh tính lại")
+        use_adaptive = st.checkbox("Adaptive population sizing", value=True)
+        use_early_stop = st.checkbox("Early stopping", value=True)
+        use_cache = st.checkbox("Result caching", value=True)
     
     if st.button("🚀 Run Optimization", type="primary"):
         if not cement_types:
@@ -450,50 +474,62 @@ def main():
             st.error("❌ Slump models not loaded!")
             return
         
-        with st.spinner("⏳ Running NSGA-II optimization..."):
-            workflow = MultiCementWorkflow(
-                models_dir=str(ROOT / "models"),
-                output_dir=str(ROOT / "outputs"),
-                predictor=predictor
-            )
-            
-            # ✅ NEW: Pass optimization parameters
-            opt_config = {
-                "pop_size": int(pop_size), 
-                "n_gen": int(n_gen), 
-                "seed": int(seed),
-                "use_adaptive": use_adaptive,
-                "use_early_stop": use_early_stop,
-                "use_cache": use_cache
-            }
-            
-            results = workflow.run_optimization(
-                user_input=user_input,
-                cement_types=cement_types,
-                optimization_config=opt_config
-            )
-        
-        st.success("✅ Optimization complete!")
-        
-        # ✅ NEW: Show optimization stats
-        with st.expander("📊 Optimization Statistics"):
-            for ct, opt_res in results["optimization_results"].items():
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric(f"{ct} Time", f"{opt_res.get('optimization_time', 0):.1f}s")
-                col2.metric("Solutions", len(opt_res['pareto_front'][0]))
+        try:
+            with st.spinner("⏳ Running NSGA-II optimization..."):
+                workflow = MultiCementWorkflow(
+                    models_dir=str(ROOT / "models"),
+                    output_dir=str(ROOT / "outputs"),
+                    predictor=predictor
+                )
                 
-                # Cache stats if available
-                if 'problem' in opt_res and hasattr(opt_res['problem'], 'get_cache_stats'):
-                    cache_stats = opt_res['problem'].get_cache_stats()
-                    if cache_stats.get('enabled'):
-                        col3.metric("Cache Hit Rate", f"{cache_stats['hit_rate']:.1f}%")
-                        col4.metric("Cache Size", cache_stats['size'])
-        
-        st.session_state["workflow"] = workflow
-        st.session_state["results"] = results
+                opt_config = {
+                    "pop_size": int(pop_size), 
+                    "n_gen": int(n_gen), 
+                    "seed": int(seed),
+                    "use_adaptive": use_adaptive,
+                    "use_early_stop": use_early_stop,
+                    "use_cache": use_cache
+                }
+                
+                results = workflow.run_optimization(
+                    user_input=user_input,
+                    cement_types=cement_types,
+                    optimization_config=opt_config
+                )
+            
+            st.success("✅ Optimization complete!")
+            
+            with st.expander("📊 Optimization Statistics"):
+                for ct, opt_res in results["optimization_results"].items():
+                    if 'error' in opt_res:
+                        st.error(f"❌ {ct}: {opt_res['error']}")
+                        continue
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric(f"{ct} Time", f"{opt_res.get('optimization_time', 0):.1f}s")
+                    col2.metric("Solutions", len(opt_res['pareto_front'][0]))
+                    
+                    if 'problem' in opt_res and hasattr(opt_res['problem'], 'get_cache_stats'):
+                        cache_stats = opt_res['problem'].get_cache_stats()
+                        if cache_stats.get('enabled'):
+                            col3.metric("Cache Hit Rate", f"{cache_stats['hit_rate']:.1f}%")
+                            col4.metric("Cache Size", cache_stats['size'])
+            
+            st.session_state["workflow"] = workflow
+            st.session_state["results"] = results
+            
+        except Exception as e:
+            st.error(f"❌ Optimization failed: {e}")
+            with st.expander("🔍 Full Error Details"):
+                st.code(traceback.format_exc())
     
     if "results" in st.session_state:
         results = st.session_state["results"]
+        
+        if not results or 'processed_results' not in results:
+            st.error("❌ No valid results to display")
+            return
+        
         st.markdown("## 📊 Optimization Results")
         
         tabs = st.tabs(["📋 Summary", "🏆 Top Designs", "📈 Pareto Front", "🔬 Sensitivity"])
@@ -501,7 +537,15 @@ def main():
         with tabs[0]:
             st.subheader("Executive Summary")
             for ct, proc in results["processed_results"].items():
+                if 'error' in results["optimization_results"][ct]:
+                    st.error(f"❌ {ct}: {results['optimization_results'][ct]['error']}")
+                    continue
+                
                 st.markdown(f"### {ct}")
+                if not proc["ranked_designs"]:
+                    st.warning(f"No designs found for {ct}")
+                    continue
+                
                 top_design = proc["ranked_designs"][0]
                 cols = st.columns(4)
                 cols[0].metric("Cost (VNĐ/m³)", f"{top_design['objectives']['cost']:,.0f}")
@@ -509,7 +553,7 @@ def main():
                 cols[2].metric("Slump (mm)", f"{top_design['predictions']['slump']:.0f}")
                 cols[3].metric("CO₂ (kg/m³)", f"{top_design['objectives']['co2']:.0f}")
             
-            st.markdown("### 🔍 Recommendations")
+            st.markdown("### 📋 Recommendations")
             for rec in results["recommendations"]:
                 st.write(f"- {rec}")
         
@@ -541,14 +585,12 @@ def main():
                         with col4:
                             st.plotly_chart(create_co2_breakdown_chart(design['co2_breakdown']), use_container_width=True, key=f"co2_{ct}_{i}")
                         
-                        # --- STRENGTH DEVELOPMENT ---
                         st.markdown("---")
                         st.markdown("**📈 Strength Development Curve**")
                         
                         fig_scurve, s_val = create_strength_development_chart(design, predictor, cement_type=ct)
                         st.plotly_chart(fig_scurve, use_container_width=True, key=f"scurve_{ct}_{i}")
                         
-                        # Calculate tables using s_val
                         f28 = design['predictions']['f28']
                         def get_f_t(t, f28, s): return f28 * np.exp(s * (1 - np.sqrt(28/t)))
                         
@@ -579,20 +621,23 @@ def main():
             st.markdown("### 📊 2D Trade-off")
             all_data = []
             for ct, opt_res in results["optimization_results"].items():
+                if 'error' in opt_res:
+                    continue
                 _, F = opt_res['pareto_front']
                 for f in F:
                     all_data.append({"Cement": ct, "Cost": f[0]/1000, "Strength": -f[1], "CO₂": f[3]})
             
-            fig_scatter = px.scatter(pd.DataFrame(all_data), x="Cost", y="Strength", color="Cement", size="CO₂", 
-                                   title="Cost vs Strength Trade-off", labels={"Cost": "Cost (kVNĐ/m³)", "Strength": "Strength (MPa)"})
-            st.plotly_chart(fig_scatter, use_container_width=True)
+            if all_data:
+                fig_scatter = px.scatter(pd.DataFrame(all_data), x="Cost", y="Strength", color="Cement", size="CO₂", 
+                                       title="Cost vs Strength Trade-off", labels={"Cost": "Cost (kVNĐ/m³)", "Strength": "Strength (MPa)"})
+                st.plotly_chart(fig_scatter, use_container_width=True)
             
             st.markdown("---")
             st.markdown("### 📊 s-Parameter Analysis")
             st.plotly_chart(create_s_parameter_comparison_chart(results), use_container_width=True)
             
             with st.expander("ℹ️ Understanding s-Parameter"):
-                 st.markdown("""
+                st.markdown("""
                 **s-parameter** controls strength development curve shape:
                 - **s = 0.20**: Fast strength gain (rapid hardening)
                 - **s = 0.25**: Above average rate
@@ -605,7 +650,16 @@ def main():
         with tabs[3]:
             st.subheader("🔬 Sensitivity Analysis")
             ct_list = list(results["processed_results"].keys())
+            if not ct_list:
+                st.warning("No results to analyze")
+                return
+            
             chosen_ct = st.selectbox("Select cement type", ct_list)
+            
+            if not results["processed_results"][chosen_ct]["ranked_designs"]:
+                st.warning("No designs to analyze")
+                return
+            
             top_design = results["processed_results"][chosen_ct]["ranked_designs"][0]
             analyzer = SensitivityAnalyzer()
             
@@ -638,23 +692,34 @@ def main():
         
         if c1.button("📄 Generate PDF Report"):
             with st.spinner("Generating..."):
-                pdf_path = PDFReportGenerator().generate_report(results, str(ROOT / "outputs"))
-                st.success(f"✅ Report saved: {pdf_path}")
+                try:
+                    pdf_path = PDFReportGenerator().generate_report(results, str(ROOT / "outputs"))
+                    st.success(f"✅ Report saved: {pdf_path}")
+                except Exception as e:
+                    st.error(f"❌ PDF generation failed: {e}")
         
         if c2.button("💾 Export to CSV"):
-             for ct, opt_res in results["optimization_results"].items():
-                X, F = opt_res['pareto_front']
-                df = pd.DataFrame(X, columns=['cement', 'water', 'flyash', 'slag', 'silica_fume', 'sp', 'fine', 'coarse'])
-                df['cost'] = F[:, 0]
-                df['f28'] = -F[:, 1]
-                df['slump_dev'] = F[:, 2]
-                df['co2'] = F[:, 3]
-                df.to_csv(ROOT / "outputs" / f"pareto_{ct}.csv", index=False)
-             st.success("✅ CSV exported")
+            try:
+                for ct, opt_res in results["optimization_results"].items():
+                    if 'error' in opt_res:
+                        continue
+                    X, F = opt_res['pareto_front']
+                    df = pd.DataFrame(X, columns=['cement', 'water', 'flyash', 'slag', 'silica_fume', 'sp', 'fine', 'coarse'])
+                    df['cost'] = F[:, 0]
+                    df['f28'] = -F[:, 1]
+                    df['slump_dev'] = F[:, 2]
+                    df['co2'] = F[:, 3]
+                    df.to_csv(ROOT / "outputs" / f"pareto_{ct}.csv", index=False)
+                st.success("✅ CSV exported")
+            except Exception as e:
+                st.error(f"❌ CSV export failed: {e}")
              
         if c3.button("🎯 Export for Production"):
-            path = st.session_state["workflow"].export_for_production([(ct, 0) for ct in results["processed_results"]])
-            st.success(f"✅ Production file: {path}")
+            try:
+                path = st.session_state["workflow"].export_for_production([(ct, 0) for ct in results["processed_results"]])
+                st.success(f"✅ Production file: {path}")
+            except Exception as e:
+                st.error(f"❌ Production export failed: {e}")
 
 if __name__ == "__main__":
     main()
